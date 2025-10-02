@@ -31,7 +31,7 @@ def ui():
     index_file = _Path(__file__).resolve().parent.parent / "frontend" / "index.html"
     if index_file.exists():
         return index_file.read_text(encoding="utf-8")
-    return "<h1>AIDAS-HT Chatbot</h1><p>Frontend bulunamadı.</p>"
+    return "<h1>Hasar Tespit Platformu Sohbet Robotu</h1><p>Frontend bulunamadı.</p>"
 
 rag = SimpleRAG(KB_DIR)
 
