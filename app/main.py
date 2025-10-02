@@ -1,11 +1,15 @@
+
 from __future__ import annotations
-import os, json, datetime
-from fastapi import FastAPI, UploadFile, File, Form
+import json
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List
 from pathlib import Path
 from .rag import SimpleRAG
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path as _Path
 
 APP_NAME = "AIDAS-HT Chatbot (MVP)"
 KB_DIR = "kb"
@@ -19,6 +23,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve static UI
+app.mount("/static", StaticFiles(directory=str(_Path(__file__).resolve().parent.parent / "frontend")), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+def ui():
+    index_file = _Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+    if index_file.exists():
+        return index_file.read_text(encoding="utf-8")
+    return "<h1>AIDAS-HT Chatbot</h1><p>Frontend bulunamadı.</p>"
+
 rag = SimpleRAG(KB_DIR)
 
 class AskBody(BaseModel):
@@ -28,25 +42,19 @@ class AskBody(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": APP_NAME, "kb_docs": len(list(Path(KB_DIR).glob("*.pdf")))}
+    return {"status":"ok", "app":APP_NAME, "kb_docs": len(list(Path(KB_DIR).glob("*.pdf")))}
 
 @app.post("/ask")
 def ask(body: AskBody):
-    res = rag.answer(body.question, k=body.k)
-    return res
+    return rag.answer(body.question, k=body.k)
 
-# --- Minimal quiz endpoints ---
-QUIZ_FILE = Path(__file__).parent / "quizzes.json"
-if not QUIZ_FILE.exists():
-    QUIZ_FILE.write_text(json.dumps([
-        {"id":"Q1", "module":"Temel", "text":"Çapraz çatlaklar çoğunlukla hangi etkiyle ilişkilidir?",
-         "choices":["Isıl genleşme","Kesme etkisi","Temel oturması","Boyutsal büzülme"], "correct":1},
-        {"id":"Q2", "module":"Form", "text":"HT formunda taşıyıcı sistem alanı aşağıdakilerden hangisi değildir?",
-         "choices":["Betonarme", "Çelik", "Yığma", "PVC doğrama"], "correct":3}
-    ], ensure_ascii=False, indent=2), encoding="utf-8")
-
-with QUIZ_FILE.open(encoding="utf-8") as f:
-    QUIZ_BANK = json.load(f)
+# Minimal quiz
+QUIZ_BANK = [
+    {"id":"Q1","module":"Temel","text":"Çapraz çatlaklar çoğunlukla hangi etkiyle ilişkilidir?",
+     "choices":["Isıl genleşme","Kesme etkisi","Temel oturması","Boyutsal büzülme"],"correct":1},
+    {"id":"Q2","module":"Form","text":"HT formunda taşıyıcı sistem alanı aşağıdakilerden hangisi değildir?",
+     "choices":["Betonarme","Çelik","Yığma","PVC doğrama"],"correct":3}
+]
 
 @app.get("/quiz/start")
 def quiz_start(limit: int = 5):
@@ -71,11 +79,3 @@ def quiz_submit(body: QuizSubmitBody):
         score += int(ok)
         details.append({"id": a.id, "ok": ok, "your": a.answer, "correct": correct})
     return {"score": score, "total": len(body.answers), "details": details}
-
-# Simple static landing (useful when deployed)
-@app.get("/")
-def root():
-    return {
-        "message": "AIDAS-HT Chatbot çalışıyor. /frontend/index.html dosyasını statik servis ile yayınlayın veya bu API'yi bir web istemcisiyle kullanın.",
-        "endpoints": ["/ask", "/quiz/start", "/quiz/submit", "/health"]
-    }

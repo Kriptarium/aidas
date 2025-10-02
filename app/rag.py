@@ -1,5 +1,6 @@
+
 from __future__ import annotations
-import os, re, math, json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Dict
@@ -34,7 +35,7 @@ class SimpleRAG:
                 t = page.extract_text() or ""
                 texts.append(t)
             return "\n".join(texts)
-        except Exception as e:
+        except Exception:
             return ""
 
     def _clean(self, t: str) -> str:
@@ -61,56 +62,28 @@ class SimpleRAG:
             title = p.stem
             for ci, part in enumerate(parts):
                 self.chunks.append(DocChunk(
-                    doc_id=p.name,
-                    title=title,
-                    chunk_id=ci,
-                    text=part,
-                    source_path=str(p.name),
+                    doc_id=p.name, title=title, chunk_id=ci, text=part, source_path=str(p.name)
                 ))
         corpus = [c.text for c in self.chunks]
         if corpus:
-            self.vectorizer = TfidfVectorizer(
-                lowercase=True, stop_words="english", max_df=0.9
-            )
+            self.vectorizer = TfidfVectorizer(lowercase=True, stop_words="english", max_df=0.9)
             self.matrix = self.vectorizer.fit_transform(corpus)
 
-    def retrieve(self, query: str, k: int = 5) -> List[Tuple[DocChunk, float]]:
+    def retrieve(self, query: str, k: int = 5):
         if not self.chunks or self.matrix is None:
             return []
         qv = self.vectorizer.transform([query])
         sims = cosine_similarity(qv, self.matrix)[0]
         top_idx = sims.argsort()[::-1][:k]
-        results = [(self.chunks[i], float(sims[i])) for i in top_idx if sims[i] > 0.0]
-        return results
+        return [(self.chunks[i], float(sims[i])) for i in top_idx if sims[i] > 0.0]
 
     def answer(self, query: str, k: int = 5) -> Dict:
         ctx = self.retrieve(query, k=k)
         if not ctx:
-            return {
-                "answer": "KB’de ilgili içerik bulunamadı. Soruyu farklı ifade etmeyi deneyin.",
-                "contexts": [],
-                "disclaimer": _DISCLAIMER
-            }
-        # naive synthesis: concatenate top snippets and trim
-        synthesis = "Aşağıdaki eğitimsel özet, bilgi bankasındaki parçalara dayalıdır:\n\n"
-        for i, (chunk, score) in enumerate(ctx, 1):
-            synthesis += f"- [{i}] {chunk.title} — (uygunluk: {score:.2f})\n"
-        synthesis += "\n"
-        synthesis += "Özet: "
-        # extract a few sentences by naive split
-        joined = " ".join([c.text for c, _ in ctx])
-        sentences = re.split(r"(?<=[.!?])\s+", joined)
-        synthesis += " ".join(sentences[:6])[:1200]
-        cites = [{
-            "title": c.title, "doc": c.doc_id, "chunk_id": c.chunk_id
-        } for c, _ in ctx]
-        return {
-            "answer": synthesis.strip(),
-            "contexts": cites,
-            "disclaimer": _DISCLAIMER
-        }
+            return {"answer":"KB’de ilgili içerik bulunamadı.", "contexts":[], "disclaimer":_DISCLAIMER}
+        joined = " ".join([c.text for c,_ in ctx])[:1200]
+        cites = [{"title": c.title, "doc": c.doc_id, "chunk_id": c.chunk_id} for c,_ in ctx]
+        ans = "Eğitimsel özet (KB tabanlı):\n" + joined
+        return {"answer": ans, "contexts": cites, "disclaimer": _DISCLAIMER}
 
-_DISCLAIMER = (
-    "Bu çıktı eğitim amaçlı bir ön bilgilendirmedir; resmi hasar kararı için yetkili uzman ve "
-    "kurumsal prosedürler (AFAD/ÇŞİDB mevzuatı) esastır."
-)
+_DISCLAIMER = "Bu çıktı eğitim amaçlıdır; resmi hasar kararı için yetkili kurumların prosedürleri esastır."
